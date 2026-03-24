@@ -1,48 +1,36 @@
-FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS builder
 
-# Update system and install base dependencies
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-    build-essential \
-    git \
-    curl \
-    wget \
-    vim \
-    sudo \
-    procps \
-    openssh-client \
-    ca-certificates \
-    tini
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_NO_DEV=1 \
+    UV_PYTHON_DOWNLOADS=0
 
-# Install development tools
-RUN apt-get install -y --no-install-recommends \
-    python3 \
-    python3-pip \
-    nodejs \
-    npm \
-    golang \
-    jq \
-    htop \
-    tree \
-    unzip \
-    protobuf-compiler \
-    zip fd-find gh
-
-# Install pnpm and OpenAI Codex CLI
-RUN npm install -g pnpm && npm install -g @openai/codex
+RUN apt update && apt install -y --no-install-recommends git
 
 WORKDIR /app
-# Install Python dependencies first (cached layer)
-COPY pyproject.toml uv.lock README.md LICENSE entrypoint.sh ./
-# Copy the full source and install
-COPY src ./src
-RUN uv sync --no-dev --no-editable && uv pip install "any-llm-sdk[gemini,xai]" && \
-    chmod +x /app/entrypoint.sh
+
+RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=bind,source=uv.lock,target=uv.lock \
+    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+    uv sync --locked --no-install-project
+
+COPY . /app
+
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --no-dev --no-editable
+
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+
+RUN apt update && apt install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /app /app
+
+ENV PATH="/app/.venv/bin:$PATH"
+
+RUN  chmod +x /app/entrypoint.sh
 
 WORKDIR /workspace
 
 VOLUME /root/.bub
-
-ENTRYPOINT ["/usr/bin/tini", "--"]
 
 CMD ["/app/entrypoint.sh"]
