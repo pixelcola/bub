@@ -21,7 +21,11 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
 
-RUN apt update && apt install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
+RUN apt update \
+  && apt install -y --no-install-recommends \
+    procps \
+    git \
+  && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /app /app
 
