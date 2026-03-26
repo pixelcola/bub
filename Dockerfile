@@ -25,6 +25,7 @@ RUN apt update \
   && apt install -y --no-install-recommends \
     procps \
     git \
+    curl \
   && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /app /app
