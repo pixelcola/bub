@@ -27,16 +27,16 @@ from bub.tools import REGISTRY, model_tools, render_tools_prompt
 from bub.types import State
 from bub.utils import workspace_from_state
 
-CONTINUE_PROMPT = (
-    "Continue the same task from the latest tool results already in context. "
-    "Do not restart or repeat completed work. "
-    "First decide whether you can already answer the user. "
-    "If yes, answer directly. "
-    "If there is no real next step, output `Done.` "
-    "Never return an empty response. "
-    "Otherwise, take only the next necessary step."
-)
-
+# CONTINUE_PROMPT = (
+#     "Continue the same task from the latest tool results already in context. "
+#     "Do not restart or repeat completed work. "
+#     "First decide whether you can already answer the user. "
+#     "If yes, answer directly. "
+#     "If there is no real next step, output `Done.` "
+#     "Never return an empty response. "
+#     "Otherwise, take only the next necessary step."
+# )
+CONTINUE_PROMPT = "Continue the task."
 DEFAULT_BUB_HEADERS = {"HTTP-Referer": "https://bub.build/", "X-Title": "Bub"}
 HINT_RE = re.compile(r"\$([A-Za-z0-9_.-]+)")
 
