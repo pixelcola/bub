@@ -27,7 +27,7 @@ from bub.tools import REGISTRY, model_tools, render_tools_prompt
 from bub.types import State
 from bub.utils import workspace_from_state
 
-CONTINUE_PROMPT = "Continue the task."
+CONTINUE_PROMPT = "Continue the task. If the task is already complete, output your final answer and do not call any tool."
 HINT_RE = re.compile(r"\$([A-Za-z0-9_.-]+)")
 
 
