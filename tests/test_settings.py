@@ -43,6 +43,7 @@ def test_settings_no_keys_return_none() -> None:
     assert settings.api_key is None
     assert settings.api_base is None
     assert settings.client_args is None
+    assert settings.request_args is None
 
 
 def test_settings_provider_names_are_lowercased() -> None:
@@ -79,6 +80,11 @@ client_args:
   extra_headers:
     HTTP-Referer: https://openclaw.ai
     X-Title: OpenClaw
+request_args:
+  extra_headers:
+    x-trace-id: trace-yaml
+  extra_body:
+    service_tier: priority
 """.strip(),
     )
 
@@ -93,6 +99,10 @@ client_args:
     assert settings.client_args == {
         "extra_headers": {"HTTP-Referer": "https://openclaw.ai", "X-Title": "OpenClaw"},
     }
+    assert settings.request_args == {
+        "extra_headers": {"x-trace-id": "trace-yaml"},
+        "extra_body": {"service_tier": "priority"},
+    }
 
 
 def test_env_settings_override_yaml(tmp_path: Path) -> None:
@@ -106,6 +116,9 @@ client_args:
   extra_headers:
     HTTP-Referer: https://yaml.example
     X-Title: YAML App
+request_args:
+  extra_headers:
+    x-trace-id: trace-old
 """.strip(),
     )
 
@@ -116,6 +129,7 @@ client_args:
             "BUB_MODEL": "anthropic:claude-3-7-sonnet",
             "BUB_API_KEY": "sk-env",
             "BUB_CLIENT_ARGS": '{"extra_headers":{"HTTP-Referer":"https://env.example","X-Title":"Env App"}}',
+            "BUB_REQUEST_ARGS": '{"extra_headers":{"x-trace-id":"trace-env"},"extra_body":{"service_tier":"flex"}}',
             "BUB_MAX_STEPS": "12",
         },
         clear=True,
@@ -128,12 +142,22 @@ client_args:
     assert settings.client_args == {
         "extra_headers": {"HTTP-Referer": "https://env.example", "X-Title": "Env App"},
     }
+    assert settings.request_args == {
+        "extra_headers": {"x-trace-id": "trace-env"},
+        "extra_body": {"service_tier": "flex"},
+    }
 
 
 def test_settings_client_args_can_be_disabled() -> None:
     settings = _settings_with_env({"BUB_CLIENT_ARGS": "null"})
 
     assert settings.client_args is None
+
+
+def test_settings_request_args_can_be_disabled() -> None:
+    settings = _settings_with_env({"BUB_REQUEST_ARGS": "null"})
+
+    assert settings.request_args is None
 
 
 def test_load_settings_reads_yaml_from_bub_home(tmp_path: Path) -> None:

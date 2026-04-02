@@ -28,6 +28,8 @@ Advanced model-client settings:
 
 - `BUB_API_FORMAT` selects the request payload format sent to the upstream model endpoint: `completion`, `responses`, or `messages`.
 - `BUB_CLIENT_ARGS` passes a JSON object through to the underlying model client.
+- `BUB_REQUEST_ARGS` passes a JSON object to each model request. Use this for request-level options such as `extra_headers` and `extra_body`.
+- When `BUB_API_FORMAT=responses`, `request_args.extra_body` is expanded into top-level request fields (for example `reasoning` and `service_tier`) to match the underlying Responses client schema.
 - The accepted `BUB_CLIENT_ARGS` keys depend on the selected provider and downstream SDK behavior, so treat it as an escape hatch rather than a stable cross-provider interface.
 
 ## 2) Runtime Modes

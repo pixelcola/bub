@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+from pathlib import Path
 from collections.abc import AsyncGenerator
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -14,7 +15,7 @@ from bub.builtin.agent import Agent
 from bub.builtin.settings import AgentSettings
 
 
-def test_build_llm_passes_codex_resolver_to_republic(monkeypatch) -> None:
+def test_build_llm_passes_codex_resolver_to_republic(monkeypatch, tmp_path: Path) -> None:
     captured: dict[str, Any] = {}
     resolver = object()
 
@@ -26,12 +27,13 @@ def test_build_llm_passes_codex_resolver_to_republic(monkeypatch) -> None:
     monkeypatch.setattr(agent_module, "LLM", FakeLLM)
     monkeypatch.setattr(openai_codex, "openai_codex_oauth_resolver", lambda: resolver)
 
-    settings = AgentSettings(
-        model="openai:gpt-5-codex",
-        api_key=None,
-        api_base=None,
-        client_args={"extra_headers": {"HTTP-Referer": "https://openclaw.ai", "X-Title": "OpenClaw"}},
-    )
+    with patch.dict("os.environ", {"BUB_HOME": str(tmp_path)}, clear=True):
+        settings = AgentSettings(
+            model="openai:gpt-5-codex",
+            api_key=None,
+            api_base=None,
+            client_args={"extra_headers": {"HTTP-Referer": "https://openclaw.ai", "X-Title": "OpenClaw"}},
+        )
     tape_store = object()
 
     agent_module._build_llm(settings, tape_store, "ctx")
@@ -45,6 +47,33 @@ def test_build_llm_passes_codex_resolver_to_republic(monkeypatch) -> None:
     assert captured["kwargs"]["api_key_resolver"] is resolver
     assert captured["kwargs"]["tape_store"] is tape_store
     assert captured["kwargs"]["context"] == "ctx"
+
+
+def test_build_llm_merges_request_headers_into_default_headers_for_responses(monkeypatch, tmp_path: Path) -> None:
+    captured: dict[str, Any] = {}
+
+    class FakeLLM:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            captured["kwargs"] = kwargs
+
+    monkeypatch.setattr(agent_module, "LLM", FakeLLM)
+    monkeypatch.setattr(openai_codex, "openai_codex_oauth_resolver", lambda: object())
+
+    with patch.dict("os.environ", {"BUB_HOME": str(tmp_path)}, clear=True):
+        settings = AgentSettings(
+            model="openai:gpt-5.4",
+            api_key="k",
+            api_base="https://api.openai.com/v1",
+            api_format="responses",
+            client_args={"default_headers": {"X-Title": "Bub"}},
+            request_args={"extra_headers": {"x-trace-id": "trace-123"}},
+        )
+
+    agent_module._build_llm(settings, object(), "ctx")
+
+    assert captured["kwargs"]["client_args"] == {
+        "default_headers": {"X-Title": "Bub", "x-trace-id": "trace-123"},
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -61,7 +90,8 @@ def _make_agent() -> Agent:
     with patch.object(Agent, "__init__", lambda self, fw: None):
         agent = Agent.__new__(Agent)
 
-    agent.settings = AgentSettings(model="test:model", api_key="k", api_base="b")
+    with patch.dict("os.environ", {"BUB_HOME": "/tmp/nonexistent-bub-home"}, clear=True):
+        agent.settings = AgentSettings(model="test:model", api_key="k", api_base="b")
     agent.framework = framework
     return agent
 
@@ -84,6 +114,7 @@ class _FakeTapeService:
     def __init__(self, fork_capture: _ForkCapture) -> None:
         self._fork = fork_capture
         self.run_tools_model: str | None = None
+        self.run_tools_kwargs: dict[str, Any] | None = None
 
     def session_tape(self, session_id: str, workspace: Any) -> MagicMock:
         tape = MagicMock()
@@ -92,6 +123,7 @@ class _FakeTapeService:
 
         async def fake_run_tools_async(**kwargs: Any) -> ToolAutoResult:
             self.run_tools_model = kwargs.get("model")
+            self.run_tools_kwargs = kwargs
             return ToolAutoResult(kind="text", text="done", tool_calls=[], tool_results=[], error=None)
 
         tape.run_tools_async = fake_run_tools_async
@@ -144,6 +176,60 @@ async def test_agent_run_passes_model_to_llm() -> None:
     await agent.run(session_id="user/s1", prompt="hello", state={"_runtime_workspace": "/tmp"}, model="openai:gpt-4o")  # noqa: S108
 
     assert fake_tapes.run_tools_model == "openai:gpt-4o"
+
+
+@pytest.mark.asyncio
+async def test_agent_run_passes_request_args_to_llm() -> None:
+    agent = _make_agent()
+    with patch.dict("os.environ", {"BUB_HOME": "/tmp/nonexistent-bub-home"}, clear=True):
+        agent.settings = AgentSettings(
+            model="test:model",
+            api_key="k",
+            api_base="b",
+            request_args={
+                "extra_headers": {"x-trace-id": "trace-123"},
+                "extra_body": {"service_tier": "priority"},
+            },
+        )
+    fork_capture = _ForkCapture()
+    fake_tapes = _FakeTapeService(fork_capture)
+    agent.tapes = fake_tapes  # type: ignore[assignment]
+
+    await agent.run(session_id="user/s1", prompt="hello", state={"_runtime_workspace": "/tmp"})  # noqa: S108
+
+    assert fake_tapes.run_tools_kwargs is not None
+    assert fake_tapes.run_tools_kwargs["extra_headers"]["x-trace-id"] == "trace-123"
+    assert fake_tapes.run_tools_kwargs["extra_body"] == {"service_tier": "priority"}
+
+
+@pytest.mark.asyncio
+async def test_agent_run_flattens_extra_body_for_responses() -> None:
+    agent = _make_agent()
+    with patch.dict("os.environ", {"BUB_HOME": "/tmp/nonexistent-bub-home"}, clear=True):
+        agent.settings = AgentSettings(
+            model="openai:gpt-5.4",
+            api_key="k",
+            api_base="https://api.openai.com/v1",
+            api_format="responses",
+            request_args={
+                "extra_headers": {"x-trace-id": "trace-123"},
+                "extra_body": {
+                    "reasoning": {"effort": "high"},
+                    "service_tier": "priority",
+                },
+            },
+        )
+    fork_capture = _ForkCapture()
+    fake_tapes = _FakeTapeService(fork_capture)
+    agent.tapes = fake_tapes  # type: ignore[assignment]
+
+    await agent.run(session_id="user/s1", prompt="hello", state={"_runtime_workspace": "/tmp"})  # noqa: S108
+
+    assert fake_tapes.run_tools_kwargs is not None
+    assert "extra_headers" not in fake_tapes.run_tools_kwargs
+    assert "extra_body" not in fake_tapes.run_tools_kwargs
+    assert fake_tapes.run_tools_kwargs["reasoning"] == {"effort": "high"}
+    assert fake_tapes.run_tools_kwargs["service_tier"] == "priority"
 
 
 @pytest.mark.asyncio

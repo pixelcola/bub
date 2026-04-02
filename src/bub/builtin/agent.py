@@ -232,12 +232,14 @@ class Agent:
         else:
             tools = list(REGISTRY.values())
         async with asyncio.timeout(self.settings.model_timeout_seconds):
+            request_args = _request_args_for_model_call(self.settings)
             return await tape.run_tools_async(
                 prompt=prompt,  # republic accepts list content parts at runtime
                 system_prompt=self._system_prompt(prompt_text, state=tape.context.state, allowed_skills=allowed_skills),
                 max_tokens=self.settings.max_tokens,
                 tools=model_tools(tools),
                 model=model,
+                **request_args,
             )
 
     def _system_prompt(self, prompt: str, state: State, allowed_skills: set[str] | None = None) -> str:
@@ -281,11 +283,39 @@ def _build_llm(settings: AgentSettings, tape_store: AsyncTapeStore, tape_context
         fallback_models=settings.fallback_models,
         api_key_resolver=openai_codex_oauth_resolver(),
         tape_store=tape_store,
-        client_args=settings.client_args,
+        client_args=_client_args_for_model_client(settings),
         api_format=settings.api_format,
         context=tape_context,
         verbose=settings.verbose,
     )
+
+
+def _request_args_for_model_call(settings: AgentSettings) -> dict[str, Any]:
+    request_args = dict(settings.request_args or {})
+    if settings.api_format != "responses":
+        return request_args
+
+    extra_body = request_args.pop("extra_body", None)
+    request_args.pop("extra_headers", None)
+    if not isinstance(extra_body, dict):
+        return request_args
+    return {**request_args, **extra_body}
+
+
+def _client_args_for_model_client(settings: AgentSettings) -> dict[str, Any] | None:
+    client_args = dict(settings.client_args or {})
+    if settings.api_format != "responses":
+        return client_args or None
+
+    request_args = settings.request_args or {}
+    extra_headers = request_args.get("extra_headers")
+    if not isinstance(extra_headers, dict) or not extra_headers:
+        return client_args or None
+
+    default_headers = dict(client_args.get("default_headers", {}))
+    default_headers.update(extra_headers)
+    client_args["default_headers"] = default_headers
+    return client_args
 
 
 @dataclass(frozen=True)
